@@ -57,7 +57,7 @@ source venv/bin/activate
 Asegúrate de tener un archivo `requirements.txt` o instala las librerías manualmente:
 
 ```bash
-pip install flask numpy pandas
+pip install -r requirements.txt
 ```
 
 ### 4. Ejecutar la aplicación
