@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Climate Forecaster</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  {%- if training_in_progress -%}
+  <meta http-equiv="refresh" content="3">
+  {%- endif -%}
+</head>
+
+<body>
+  <div class="bg-shape shape-1"></div>
+  <div class="bg-shape shape-2"></div>
+
+  <div class="app-container">
+    {% if error_message %}
+    <div class="alert-box fade-in-down">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span>{{ error_message }}</span>
+    </div>
+    {% endif %}
+
+    <header class="fade-in-down">
+      <div class="logo-area">
+        <i class="fa-solid fa-temperature-arrow-up logo-icon"></i>
+        <h1>AI Thermo<span class="gradient-text">Cast</span></h1>
+      </div>
+      <div class="header-meta">
+        <span class="author">Dev: Matias Henriquez</span>
+        {%- if training_message -%}
+        <div class="status-badge {% if 'completado' in training_message.lower() %}success{% else %}pulse{% endif %}">
+          <i class="fa-solid fa-bell"></i> {{ training_message }}
+        </div>
+        {%- endif -%}
+      </div>
+    </header>
+
+    <div class="dashboard-layout">
+      <div class="sidebar fade-in-left">
+
+        <div class="glass-card upload-card">
+          <form action="/upload_model" method="post" enctype="multipart/form-data" id="upload-form">
+            <div class="upload-zone" id="drop-zone">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+              <div class="upload-text">
+                <span class="main-text">Cargar Modelo Pre-entrenado</span>
+                <span class="sub-text">Arrastra un archivo .npz aquí</span>
+              </div>
+              <input type="file" name="model_file" accept=".npz" id="file-input" hidden
+                onchange="document.getElementById('upload-form').submit()">
+            </div>
+          </form>
+        </div>
+
+        <div class="glass-card training-card">
+          <div class="card-header">
+            <i class="fa-solid fa-brain"></i>
+            <h2>Entrenamiento</h2>
+          </div>
+          <form action="/train" method="post" class="styled-form compact-form">
+            <div class="input-group">
+              <label><i class="fa-solid fa-layer-group"></i> Modo</label>
+              <div class="select-wrapper">
+                <select id="train_mode" name="mode">
+                  <option value="simple">Modo Simple (Global)</option>
+                  <option value="advanced">Modo Avanzado (Sectores)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="input-group half">
+                <label>L. Rate</label>
+                <input type="number" name="learningRate" value="0.001" step="0.0001">
+              </div>
+              <div class="input-group half">
+                <label>Pasos</label>
+                <input type="number" name="steps" value="50000">
+              </div>
+            </div>
+            <button class="btn btn-primary" type="submit" {% if training_in_progress %}disabled{% endif %}>
+              {% if training_in_progress %}
+              <i class="fa-solid fa-circle-notch fa-spin"></i> Entrenando...
+              {% else %}
+              <i class="fa-solid fa-play"></i> Iniciar
+              {% endif %}
+            </button>
+          </form>
+        </div>
+
+        <div
+          class="glass-card prediction-card {% if training_in_progress or not model_ready %}disabled-card{% endif %}">
+          <div class="card-header">
+            <i class="fa-solid fa-crystal-ball"></i>
+            <h2>Predicción</h2>
+          </div>
+          <form action="/predict" method="post" class="styled-form full-height-form">
+            <input type="hidden" name="mode" value="{{ trained_mode }}">
+
+            <div class="scrollable-content">
+              <div class="input-group">
+                <label>Años a proyectar (Máx 1000)</label>
+                <input type="number" name="years" min="1" max="1000" value="100">
+              </div>
+
+              {% if trained_mode == 'simple' %}
+              <div class="input-group">
+                <label>Escenario Preseteado</label>
+                <div class="select-wrapper">
+                  <select name="preset">
+                    <option value="conservative">Conservador (Bajo cambio)</option>
+                    <option value="moderate" selected>Moderado (Tendencia Actual)</option>
+                    <option value="aggressive">Agresivo (Net Zero rápido)</option>
+                    <option value="optimistic">Optimista (Tecnología Verde)</option>
+                    <option value="pessimistic">Pesimista (Alto CO2)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="range-group mt-2">
+                <label>Inercia Térmica <span id="val_smooth_simple">0.2</span></label>
+                <input type="range" name="smoothing" min="0" max="0.95" step="0.05" value="0.2"
+                  oninput="document.getElementById('val_smooth_simple').innerText = this.value">
+              </div>
+
+              {% elif trained_mode == 'advanced' %}
+              <div class="advanced-section">
+                <p class="section-title">Reducción por Sector</p>
+                <div class="sliders-grid">
+                  {% for sector in sectors %}
+                  <div class="range-mini">
+                    <div class="range-header">
+                      <label>{{ sector }}</label>
+                      <span id="val_{{loop.index}}">0%</span>
+                    </div>
+                    <input type="range" name="weight_{{ sector }}" min="-50" max="100" value="0"
+                      oninput="document.getElementById('val_{{loop.index}}').innerText = this.value + '%'">
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="range-group mt-2">
+                  <label>Inercia Térmica <span id="val_smooth_adv">0.2</span></label>
+                  <input type="range" name="smoothing" min="0" max="0.95" step="0.05" value="0.2"
+                    oninput="document.getElementById('val_smooth_adv').innerText = this.value">
+                </div>
+              </div>
+
+              {% else %}
+              <div class="empty-mode-message">
+                <i class="fa-solid fa-arrow-up-long"></i>
+                <p>Entrena un modelo o carga uno (.npz) para desbloquear.</p>
+              </div>
+              {% endif %}
+            </div>
+
+            <div class="form-footer">
+              <button class="btn btn-secondary" type="submit" {% if training_in_progress or not model_ready %}disabled{%
+                endif %}>
+                {% if training_in_progress %}Esperando...{% elif not model_ready %}Modelo no listo{% else %}<i
+                  class="fa-solid fa-chart-line"></i> Simular Futuro{% endif %}
+              </button>
+
+              {% if model_ready %}
+              <a href="{{ url_for('static', filename='downloads/model.npz') }}" download class="btn btn-outline">
+                <i class="fa-solid fa-file-export"></i> Descargar Modelo
+              </a>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="main-content fade-in-right">
+        <div class="glass-card chart-card">
+          <div class="card-header">
+            <i class="fa-solid fa-display"></i>
+            <h2>Proyección Global</h2>
+
+            <div class="header-actions">
+              {% if prediction %}
+              <a href="{{ url_for('static', filename='downloads/graph.csv') }}" download class="btn-sm btn-action">
+                <i class="fa-solid fa-file-csv"></i> CSV
+              </a>
+              <span class="badge">Exitosa</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart"></canvas>
+            {% if not prediction and not training_in_progress %}
+            <div class="empty-state">
+              <i class="fa-solid fa-chart-area"></i>
+              <p>Entrena o carga un modelo y realiza una predicción para visualizar.</p>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadForm = document.getElementById('upload-form');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+      dropZone.addEventListener(type, () => dropZone.classList.remove('drag-over'));
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        uploadForm.submit();
+      }
+    });
+
+    Chart.defaults.color = '#475569';
+    Chart.defaults.font.family = "'Outfit', sans-serif";
+
+    {% if prediction %}
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, 900);
+    gradient.addColorStop(0, 'rgba(244, 63, 94, 0.65)');
+    gradient.addColorStop(0.4, 'rgba(244, 63, 94, 0.25)');
+    gradient.addColorStop(1, 'rgba(244, 63, 94, 0.0)');
+
+    if (window.myChart instanceof Chart) window.myChart.destroy();
+
+    window.myChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: {{ prediction.years | tojson }},
+      datasets: [{
+        label: 'Anomalía de Temperatura Global (°C)',
+        data: {{ prediction.predictions | tojson }},
+      borderColor: '#f43f5e',
+      backgroundColor: gradient,
+      borderWidth: 3,
+      tension: 0.4,
+      fill: true,
+      pointRadius: 0,
+      pointHoverRadius: 6,
+      pointHitRadius: 20
+        }]
+      },
+      options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'end' },
+        tooltip: {
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          titleColor: '#1e293b',
+          bodyColor: '#475569',
+          borderColor: 'rgba(244, 63, 94, 0.2)',
+          borderWidth: 1,
+          padding: 10,
+          displayColors: false,
+          callbacks: { label: (c) => c.parsed.y.toFixed(2) + ' °C' }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8, color: '#94a3b8' } },
+        y: { border: { display: false }, grid: { color: '#f1f5f9', borderDash: [5, 5] }, title: { display: true, text: 'Anomalía (°C)' } }
+      }
+    }
+    });
+
+    const emptyState = document.querySelector('.empty-state');
+    if (emptyState) emptyState.style.display = 'none';
+    {% endif %}
+  </script>
+</body>
+
+</html>
