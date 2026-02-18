@@ -109,14 +109,17 @@ def simulate_multi_sector(
 
     df_ems = df_ems[df_ems["Entity"] == "World"]
 
-    csv_cols_map = {"Year": "year", **SECTOR_MAP_CSV}
+    for col in SECTOR_MAP_CSV.values():
+        if col not in df_ems.columns:
+            df_ems[col] = 0.0
 
-    existing = [c for c in csv_cols_map.keys() if c in df_ems.columns]
-    df_ems = df_ems[existing].rename(columns={k: csv_cols_map[k] for k in existing})
+    df_ems = df_ems[["Year"] + list(SECTOR_MAP_CSV.values())].rename(
+        columns={"Year": "year"}
+    )
+    internal_cols = list(SECTOR_MAP_CSV.values())
 
     df = pd.merge(df_tmp, df_ems, on="year", how="inner")
 
-    internal_cols = [c for c in df_ems.columns if c != "year"]
     X_cols = []
     for col in internal_cols:
         df[f"cum_{col}"] = df[col].cumsum()
